@@ -1,0 +1,544 @@
+
+// mavlink_testDlg.cpp : implementation file
+//
+
+//#include "stdafx.h"
+//#include "windows.h"
+//#include <windows.h>
+//#include "mavlink_test.h"
+#include "mavlink_testDlg.h"
+#include "afxdialogex.h"
+#include "crc1.h"
+#include <fstream>
+
+//#include "opencv2/highgui/highgui.hpp"
+#include <iostream>
+
+using namespace cv;
+using namespace std;
+
+#ifdef _DEBUG
+#define new DEBUG_NEW
+#endif
+
+BYTE state = 0;
+BYTE seq, length;
+BYTE ID, src_system, cmp_system;
+BYTE index = 0;
+BYTE data[256];
+BYTE crc[2];
+
+float pitch, roll, yaw;
+int lat, lon, alt, timestampA = 0, timestampG = 0, i = 1, rununtil = 20;
+FILE * attdata;
+
+
+//void grabber(int timestamp);
+
+void Cmavlink_testDlg::ReadBuffer(void)
+{
+	if (i == 1)
+	{
+	attdata = fopen("data.txt", "w");
+	fprintf(attdata, "S.No. \t Timestamp \t Roll\t\t Pitch\t\t Yaw\t\t Latitude\t Longitude\t Altitude(m)\n");
+	fprintf(attdata, "====================================================================================================================\n");
+	//fclose(attdata);
+	}
+	else if (i < rununtil)
+	{
+		attdata = fopen("data.txt", "a");
+	}
+	
+	while (cba.GetSize() > 0 && (i < rununtil))
+	{
+		//cba.GetSize();
+		CString str;
+		
+		
+			switch (state)
+			{
+			case 0: if (cba.GetAt(0) == 0xFE) state++; break;
+			case 1: length = cba.GetAt(0); state++; break;
+			case 2: seq = cba.GetAt(0); state++; break;
+			case 3: src_system = cba.GetAt(0); state++; break;
+			case 4: cmp_system = cba.GetAt(0); state++; break;
+			case 5: ID = cba.GetAt(0); index = 0; state++; break;
+			case 6: if (index < length - 1)
+			{
+				data[index] = cba.GetAt(0);
+				index++;
+			}
+					else
+						state++;
+				break;
+			case 7:  crc[0] = cba.GetAt(0); state++; break;
+			case 8:  crc[1] = cba.GetAt(0); state = 0;
+				TRACE(/*length=%u  seq=%x  src=%x  cmp=%x  ID=%u  crc[0]=%x  crc[1]=%x*/"roll=%f pitch=%f yaw=%f lat=%f lon=%f alt=%f\n", /*length, seq, src_system, cmp_system, ID, crc[0], crc[1],*/ roll*180.0 / 3.142, pitch*180.0 / 3.142, yaw*180.0 / 3.142, lat/1e7, lon/1e7, alt/1e3);
+				//Sleep(3);
+				if (ID == 30)
+				{
+					timestampA = ((UINT32*)data)[0];
+					roll = ((float*)data)[1];
+					pitch = ((float*)data)[2];
+					yaw = ((float*)data)[3];
+					//					if (attdata)
+					//					{
+					fprintf(attdata, "%d \t %u \t %f \t %f \t %f \t 00.000000 \t 00.000000 \t 0.000000 \n", i, timestampA, roll*180.0 / 3.142, pitch*180.0 / 3.142, yaw*180.0 / 3.142);
+					/*						fclose(attdata);
+					}
+					else if (!attdata)
+					{
+					attdata = fopen("data.txt", "a");
+					fprintf(attdata, "%d \t %u \t %f \t %f \t %f \t 00.000000 \t 00.000000 \t 0.000000 \n", i, timestampA, roll*180.0 / 3.142, pitch*180.0 / 3.142, yaw*180.0 / 3.142);
+					//						fclose(attdata);
+					}*/
+					str.Format("%f", roll*180.0 / 3.142);
+					GetDlgItem(IDC_ST_ROLL)->SetWindowText(str);
+					str.Format("%f", pitch*180.0 / 3.142);
+					GetDlgItem(IDC_ST_PITCH)->SetWindowText(str);
+					str.Format("%f", yaw*180.0 / 3.142);
+					GetDlgItem(IDC_ST_YAW)->SetWindowText(str);
+					grabber(timestampA);
+					//fclose(attdata);
+				}
+				else if (ID == 33)
+				{
+					timestampG = ((UINT32*)data)[0];
+					lat = ((INT32*)data)[1];
+					lon = ((INT32*)data)[2];
+					alt = ((INT32*)data)[4];
+					//					if (attdata)
+					//					{
+					fprintf(attdata, "%d \t %u \t 0.000000 \t 0.000000 \t 0.000000 \t %f \t %f \t %f \n", i, timestampG, lat / 1e7, lon / 1e7, alt / 1e3);
+					/*						fclose(attdata);
+					}
+					else if (!attdata)
+					{
+					attdata = fopen("data.txt", "a");
+					fprintf(attdata, "%d \t %u \t 0.000000 \t 0.000000 \t 0.000000 \t %f \t %f \t %f \n", i, timestampG, lat / 1e7, lon / 1e7, alt / 1e3);
+					//						fclose(attdata);
+					}*/
+					str.Format("%f", lat / 1e7);
+					GetDlgItem(IDC_ST_LAT)->SetWindowText(str);
+					str.Format("%f", lon / 1e7);
+					GetDlgItem(IDC_ST_LON)->SetWindowText(str);
+					str.Format("%f", alt / 1e3);
+					GetDlgItem(IDC_ST_ALT)->SetWindowText(str);
+					grabber(timestampG);
+					//fclose(attdata);
+				}
+				break;
+			default: state = 0;
+			}
+		cba.RemoveAt(0);
+	}
+	fclose(attdata);
+	
+}
+// CAboutDlg dialog used for App About
+/*
+void grabber(int timestamp)
+{
+	VideoCapture cap;
+	cap.open(0);
+	Mat frame;
+
+	//cap.set(CV_CAP_PROP_POS_MSEC, 300); //start the video at 300ms
+
+	//double fps = cap.get(CV_CAP_PROP_FPS); //get the frames per seconds of the video
+
+	//cout << "Frame per seconds : " << fps << endl;
+
+	//namedWindow("Video", CV_WINDOW_AUTOSIZE); //create a window called "MyVideo"
+	char s[20];
+
+	while (!cap.read(frame));
+	bool bSuccess = cap.read(frame); // read a new frame from video
+
+	//imshow("Video", frame); //show the frame in "Video" window
+	sprintf(s, "frame %u.jpg", timestamp);
+	i++;
+	imwrite(s, frame);
+
+	
+
+
+	/*if (waitKey(1000) == 27) //wait for 'esc' key press for 30 ms. If 'esc' key is pressed, break loop
+	{
+	return;
+	}*/
+}
+
+class CAboutDlg : public CDialogEx
+{
+public:
+	CAboutDlg();
+
+// Dialog Data
+	enum { IDD = IDD_ABOUTBOX };
+
+	protected:
+	virtual void DoDataExchange(CDataExchange* pDX);    // DDX/DDV support
+
+// Implementation
+protected:
+	DECLARE_MESSAGE_MAP()
+};
+
+CAboutDlg::CAboutDlg() : CDialogEx(CAboutDlg::IDD)
+{
+}
+
+
+void CAboutDlg::DoDataExchange(CDataExchange* pDX)
+{
+	CDialogEx::DoDataExchange(pDX);
+}
+
+BEGIN_MESSAGE_MAP(CAboutDlg, CDialogEx)
+END_MESSAGE_MAP()
+
+
+// Cmavlink_testDlg dialog
+
+
+
+
+Cmavlink_testDlg::Cmavlink_testDlg(CWnd* pParent /*=NULL*/)
+	: CDialogEx(Cmavlink_testDlg::IDD, pParent)
+	, m_port(0)
+{
+	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
+}
+
+void Cmavlink_testDlg::DoDataExchange(CDataExchange* pDX)
+{
+	CDialogEx::DoDataExchange(pDX);
+	DDX_Control(pDX, IDC_MSCOMM1, m_comm1);
+	DDX_Text(pDX, IDC_EDIT_PORT, m_port);
+}
+
+BEGIN_MESSAGE_MAP(Cmavlink_testDlg, CDialogEx)
+	ON_WM_SYSCOMMAND()
+	ON_WM_PAINT()
+	ON_WM_QUERYDRAGICON()
+	ON_BN_CLICKED(IDC_BUTTON_OPEN, &Cmavlink_testDlg::OnBnClickedButtonOpen)
+	ON_BN_CLICKED(IDC_BUTTON_TEST, &Cmavlink_testDlg::OnBnClickedButtonTest)
+	ON_BN_CLICKED(IDC_BUTTON_SEND, &Cmavlink_testDlg::OnBnClickedButtonSend)
+	//ON_STN_CLICKED(IDC_ST_LAT, &Cmavlink_testDlg::OnStnClickedStLat)
+	//ON_STN_CLICKED(IDC_ST_ROLL, &Cmavlink_testDlg::OnStnClickedStRoll)
+END_MESSAGE_MAP()
+
+
+// Cmavlink_testDlg message handlers
+
+BOOL Cmavlink_testDlg::OnInitDialog()
+{
+	CDialogEx::OnInitDialog();
+
+	// Add "About..." menu item to system menu.
+
+	// IDM_ABOUTBOX must be in the system command range.
+	ASSERT((IDM_ABOUTBOX & 0xFFF0) == IDM_ABOUTBOX);
+	ASSERT(IDM_ABOUTBOX < 0xF000);
+
+	CMenu* pSysMenu = GetSystemMenu(FALSE);
+	if (pSysMenu != NULL)
+	{
+		BOOL bNameValid;
+		CString strAboutMenu;
+		bNameValid = strAboutMenu.LoadString(IDS_ABOUTBOX);
+		ASSERT(bNameValid);
+		if (!strAboutMenu.IsEmpty())
+		{
+			pSysMenu->AppendMenu(MF_SEPARATOR);
+			pSysMenu->AppendMenu(MF_STRING, IDM_ABOUTBOX, strAboutMenu);
+		}
+	}
+
+	// Set the icon for this dialog.  The framework does this automatically
+	//  when the application's main window is not a dialog
+	SetIcon(m_hIcon, TRUE);			// Set big icon
+	SetIcon(m_hIcon, FALSE);		// Set small icon
+
+	// TODO: Add extra initialization here
+
+	return TRUE;  // return TRUE  unless you set the focus to a control
+}
+
+void Cmavlink_testDlg::OnSysCommand(UINT nID, LPARAM lParam)
+{
+	if ((nID & 0xFFF0) == IDM_ABOUTBOX)
+	{
+		CAboutDlg dlgAbout;
+		dlgAbout.DoModal();
+	}
+	else
+	{
+		CDialogEx::OnSysCommand(nID, lParam);
+	}
+}
+
+// If you add a minimize button to your dialog, you will need the code below
+//  to draw the icon.  For MFC applications using the document/view model,
+//  this is automatically done for you by the framework.
+
+void Cmavlink_testDlg::OnPaint()
+{
+	if (IsIconic())
+	{
+		CPaintDC dc(this); // device context for painting
+
+		SendMessage(WM_ICONERASEBKGND, reinterpret_cast<WPARAM>(dc.GetSafeHdc()), 0);
+
+		// Center icon in client rectangle
+		int cxIcon = GetSystemMetrics(SM_CXICON);
+		int cyIcon = GetSystemMetrics(SM_CYICON);
+		CRect rect;
+		GetClientRect(&rect);
+		int x = (rect.Width() - cxIcon + 1) / 2;
+		int y = (rect.Height() - cyIcon + 1) / 2;
+
+		// Draw the icon
+		dc.DrawIcon(x, y, m_hIcon);
+	}
+	else
+	{
+		CDialogEx::OnPaint();
+	}
+}
+
+// The system calls this function to obtain the cursor to display while the user drags
+//  the minimized window.
+HCURSOR Cmavlink_testDlg::OnQueryDragIcon()
+{
+	return static_cast<HCURSOR>(m_hIcon);
+}
+
+
+
+void Cmavlink_testDlg::OnBnClickedButtonOpen()
+{
+	// TODO: Add your control notification handler code here
+	UpdateData(1);
+	//videocap();
+	if(m_port > 0)
+		{
+			if(m_comm1.get_PortOpen())
+			{
+				m_comm1.put_PortOpen(FALSE);
+			}
+
+			m_comm1.put__CommPort(m_port);
+			m_comm1.put_Settings("57600,n,8,1");
+			m_comm1.put_InputMode(1);	
+			m_comm1.put_RThreshold(1);
+			m_comm1.put_DTREnable(TRUE);
+			m_comm1.put_RTSEnable(TRUE);
+
+			
+			if(!m_comm1.get_PortOpen())
+			{
+				m_comm1.put_PortOpen(TRUE);
+				m_comm1.put_InputLen(0);
+				m_comm1.get_Input();
+				AfxGetApp()->WriteProfileInt("mav","port",m_port); 
+
+			}
+		}
+}
+BEGIN_EVENTSINK_MAP(Cmavlink_testDlg, CDialogEx)
+	ON_EVENT(Cmavlink_testDlg, IDC_MSCOMM1, 1, Cmavlink_testDlg::OnCommMscomm1, VTS_NONE)
+END_EVENTSINK_MAP()
+
+
+void Cmavlink_testDlg::OnCommMscomm1()
+{
+	// TODO: Add your control notification handler code here
+	//CString stt;
+	VARIANT variant_inp;
+    COleSafeArray safearray_inp;
+    LONG len,k;
+    BYTE* rxdata=new BYTE[32768]; 
+    //CString strtemp;
+	//CString m_RXD[1000];
+	
+	if(m_comm1.get_CommEvent() == 2) 
+    {             
+		variant_inp = m_comm1.get_Input(); 
+        safearray_inp = variant_inp; 
+        len = safearray_inp.GetOneDimSize(); 
+        for(k = 0; k < len; k++)
+            safearray_inp.GetElement(&k, rxdata+k);
+		//safearray_inp. AccessData((void**)(rxdata));
+        for(k = 0;k<len;k++) 
+        {
+            BYTE bt = *(char*)(rxdata+k); 
+			cba.Add(bt);
+			//strtemp.Format("%02X ", bt);	
+			//m_RXD += strtemp;
+        }
+		
+		ReadBuffer();
+    }
+    
+	//TRACE("%s\n",m_RXD);
+	//m_RXD="";
+
+	delete rxdata;
+	//if(len >= 53)
+		
+
+	//ProcessData(rxdata,len);
+	//ProcessData2();
+}
+
+
+
+/*void Cmavlink_testDlg::ReadBuffer(void)
+{
+	//CByteArray buffer;
+	//int j=0;
+	CString str;
+	
+	while(cba.GetSize() > 0)
+	{
+		//TRACE("val=%x\n",cba.GetAt(0));
+		switch(state){
+		case 0 : if(cba.GetAt(0) == 0xFE) state++; break;
+		case 1 : length = cba.GetAt(0); state++; break; 
+		case 2 : seq = cba.GetAt(0); state++; break;
+		case 3 : src_system = cba.GetAt(0); state++; break;
+		case 4 : cmp_system = cba.GetAt(0); state++; break;
+		case 5 : ID = cba.GetAt(0); index=0; state++; break;
+		case 6 : if(index < length-1) 
+				 {
+					 data[index] = cba.GetAt(0);
+					 index++;
+				 }
+				 else
+					 state++;
+			break;
+		case 7 :  crc[0] = cba.GetAt(0); state++; break;
+		case 8 :  crc[1] = cba.GetAt(0); state = 0; /*TRACE("seq=%x\n",seq);
+				TRACE("length=%u  seq=%x  src=%x  cmp=%x  ID=%u  crc[0]=%x  crc[1]=%x\n",length,seq,src_system,cmp_system,ID,crc[0],crc[1]);
+				if(ID == 30)
+				{
+					roll = ((float*)data)[1];
+					pitch = ((float*)data)[2];
+					yaw = ((float*)data)[3];
+					str.Format("%f",roll*180.0/3.142);
+					GetDlgItem(IDC_ST_ROLL)->SetWindowText(str);
+					str.Format("%f",pitch*180.0/3.142);
+					GetDlgItem(IDC_ST_PITCH)->SetWindowText(str);
+					str.Format("%f",yaw*180.0/3.142);
+					GetDlgItem(IDC_ST_YAW)->SetWindowText(str);
+				}
+				break;
+		default : state = 0;
+		}
+		
+		cba.RemoveAt(0);
+	}
+	
+	//if(ID == 0x00) Beep(2000,100);
+	//TRACE("seq=%x\n",seq);//"length=%x  seq=%x  src=%x  cmp=%x  ID=%x  crc[0]=%x  crc[1]=%x\n",length,seq,src_system,cmp_system,ID,crc[0],crc[1]);
+}*/
+
+//void Cmavlink_testDlg::crc_accumulate(BYTE data, UINT16 *crcAccum)
+//{
+//        /*Accumulate one byte of data into the CRC*/
+//        BYTE tmp;
+//
+//        tmp = data ^ (BYTE)(*crcAccum & 0xff);
+//        tmp ^= (tmp<<4);
+//        *crcAccum = (*crcAccum>>8) ^ (tmp<<8) ^ (tmp <<3) ^ (tmp>>4);
+//}
+//
+//void Cmavlink_testDlg::crc_init(UINT16* crcAccum)
+//{
+//        *crcAccum = X25_INIT_CRC;
+//}
+//
+// USHORT Cmavlink_testDlg::crc_calculate(BYTE* pBuffer, int length)
+//{
+//
+//        // For a "message" of length bytes contained in the unsigned char array
+//        // pointed to by pBuffer, calculate the CRC
+//        // crcCalculate(unsigned char* pBuffer, int length, unsigned short* checkConst) < not needed
+//
+//        UINT16 crcTmp;
+//        //uint16_t tmp;
+//        BYTE* pTmp;
+//		int i;
+//
+//        pTmp=pBuffer;
+//        
+//
+//        /* init crcTmp */
+//        crc_init(&crcTmp);
+//
+//        for (i = 1; i < length; i++){
+//                crc_accumulate(*pTmp++, &crcTmp);
+//        }
+//
+//        /* This is currently not needed, as only the checksum over payload should be computed
+//        tmp = crcTmp;
+//        crcAccumulate((unsigned char)(~crcTmp & 0xff),&tmp);
+//        crcAccumulate((unsigned char)((~crcTmp>>8)&0xff),&tmp);
+//        *checkConst = tmp;
+//        */
+//        return(crcTmp);
+//}
+
+BYTE Seq_send = 0;
+
+ void Cmavlink_testDlg::test()
+ {    
+	 
+}
+
+
+ void Cmavlink_testDlg::OnBnClickedButtonTest()
+ {
+	 // TODO: Add your control notification handler code here
+	 //return;
+ }
+
+
+ void Cmavlink_testDlg::OnBnClickedButtonSend()
+ {
+	 byte data[]={0xfe, 0x09, 0x00, 0xff, 0xbe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x08, 0x00, 0x00, 0x03, 0x28, 0x42};
+	SendData(data);
+
+	byte data2[]={0xfe, 0x02, 0x01, 0xff, 0xbe, 0x15, 0x01, 0x01, 0xac, 0xa8};
+	SendData(data2);
+	
+	byte data3[]={0xfe, 0x06, 0x02, 0xff, 0xbe, 0x42, 0x02, 0x00, 0x01, 0x01, 0x02, 0x01, 0xc0, 0x34};   
+	SendData(data3);
+
+	byte data4[]={0xfe, 0x06, 0x03, 0xff, 0xbe, 0x42, 0x03, 0x00, 0x01, 0x01, 0x06, 0x01, 0xe5, 0x9d};   
+	SendData(data4);
+	
+	byte data5[]={0xfe, 0x06, 0x04, 0xff, 0xbe, 0x42, 0x0a, 0x00, 0x01, 0x01, 0x0a, 0x01, 0x99, 0xd9};   
+	SendData(data5);
+	
+ }
+
+
+ void Cmavlink_testDlg::SendData(BYTE* data)
+ {
+	 CByteArray cbvar;
+	 for(int i=0; i < data[1]+8;i++ )
+		 cbvar.Add(data[i]);
+	 //cbvar.Add(((byte*)&crcr)[0]);
+	 //cbvar.Add(((byte*)&crcr)[1]);
+	 
+	 //TRACE("bb[0] = %x\tbb[1] = %x\n",((byte*)&crcr)[0],((byte*)&crcr)[1]);
+
+	 COleVariant var(cbvar);
+	 //var.pbVal = data;
+	  m_comm1.put_Output(var);
+	  
+	  Seq_send++;
+ }

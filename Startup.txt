@@ -1,0 +1,4 @@
+navigate to workspace directory
+build with catkin_make in workspace directory
+run "source ./devel/setup.bash" to familiarize ROS with our node's directory
+run "rosrun firstpackage talker" after initiating roscore
